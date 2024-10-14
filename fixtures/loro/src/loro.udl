@@ -1,0 +1,1007 @@
+namespace loro{
+    
+};
+
+// ============= Traits =============
+
+[Trait]
+interface ValueOrContainer{
+    boolean is_value();
+    boolean is_container();
+    LoroValue? as_value();
+    ContainerID? as_container();
+    LoroText? as_loro_text();
+    LoroList? as_loro_list();
+    LoroMap? as_loro_map();
+    LoroTree? as_loro_tree();
+    LoroCounter? as_loro_counter();
+    LoroMovableList? as_loro_movable_list();
+};
+
+[Trait, WithForeign]
+interface LoroValueLike{
+    LoroValue as_loro_value();
+};
+
+[Trait, WithForeign]
+interface ContainerIdLike{
+    ContainerID as_container_id(ContainerType ty);
+};
+
+[Trait, WithForeign]
+interface Subscriber{
+    void on_diff(DiffEvent diff);
+};
+
+[Trait, WithForeign]
+interface OnPush{
+    UndoItemMeta on_push(UndoOrRedo undo_or_redo, CounterSpan span);
+};
+
+[Trait, WithForeign]
+interface OnPop{
+    void on_pop(UndoOrRedo undo_or_redo, CounterSpan span, UndoItemMeta undo_meta);
+};
+
+// ============= LORO DOC =============
+
+interface LoroDoc{
+    /// Create a new `LoroDoc` instance.
+    constructor();
+
+    /// Duplicate the document with a different PeerID
+    ///
+    /// The time complexity and space complexity of this operation are both O(n),
+    LoroDoc fork();
+
+    // Config config();
+    // [Throws=LoroError]
+    // ImportBlobMetadata decode_import_blob_meta([ByRef] bytes);
+
+    /// Set whether to record the timestamp of each change. Default is `false`.
+    ///
+    /// If enabled, the Unix timestamp will be recorded for each change automatically.
+    ///
+    /// You can set each timestamp manually when committing a change.
+    ///
+    /// NOTE: Timestamps are forced to be in ascending order.
+    /// If you commit a new change with a timestamp that is less than the existing one,
+    /// the largest existing timestamp will be used instead.
+    void set_record_timestamp(boolean record);
+
+    /// Set the interval of mergeable changes, in milliseconds.
+    ///
+    /// If two continuous local changes are within the interval, they will be merged into one change.
+    /// The default value is 1000 seconds.
+    void set_change_merge_interval(i64 interval);
+
+    /// Set the jitter of the tree position(Fractional Index).
+    ///
+    /// The jitter is used to avoid conflicts when multiple users are creating the node at the same position.
+    /// value 0 is default, which means no jitter, any value larger than 0 will enable jitter.
+    /// Generally speaking, jitter will affect the growth rate of document size.
+    void set_fractional_index_jitter(u8 jitter);
+
+    // void config_text_style(StyleConfigMap text_style);
+
+    /// Attach the document state to the latest known version.
+    ///
+    /// > The document becomes detached during a `checkout` operation.
+    /// > Being `detached` implies that the `DocState` is not synchronized with the latest version of the `OpLog`.
+    /// > In a detached state, the document is not editable, and any `import` operations will be
+    /// > recorded in the `OpLog` without being applied to the `DocState`.
+    void attach();
+
+    /// Checkout the `DocState` to a specific version.
+    ///
+    /// > The document becomes detached during a `checkout` operation.
+    /// > Being `detached` implies that the `DocState` is not synchronized with the latest version of the `OpLog`.
+    /// > In a detached state, the document is not editable, and any `import` operations will be
+    /// > recorded in the `OpLog` without being applied to the `DocState`.
+    ///
+    /// You should call `attach` to attach the `DocState` to the latest version of `OpLog`.
+    [Throws=LoroError]
+    void checkout([ByRef] Frontiers frontiers);
+
+    /// Checkout the `DocState` to the latest version.
+    ///
+    /// > The document becomes detached during a `checkout` operation.
+    /// > Being `detached` implies that the `DocState` is not synchronized with the latest version of the `OpLog`.
+    /// > In a detached state, the document is not editable, and any `import` operations will be
+    /// > recorded in the `OpLog` without being applied to the `DocState`.
+    ///
+    /// This has the same effect as `attach`.
+    void checkout_to_latest();
+
+    // Ordering cmp_with_frontiers([ByRef] Frontiers other);
+    // cmp_frontiers();
+
+    /// Force the document enter the detached mode.
+    ///
+    /// In this mode, when you importing new updates, the [loro_internal::DocState] will not be changed.
+    ///
+    /// Learn more at https://loro.dev/docs/advanced/doc_state_and_oplog#attacheddetached-status
+    void detach();
+    
+    /// Import a batch of updates/snapshot.
+    ///
+    /// The data can be in arbitrary order. The import result will be the same.
+    [Throws=LoroError]
+    void import_batch([ByRef] sequence<bytes> bytes);
+
+    // TODO: id type
+    /// Get a [LoroMovableList] by container id.
+    ///
+    /// If the provided id is string, it will be converted into a root container id with the name of the string.
+    LoroMovableList get_movable_list(ContainerIdLike id);
+    
+    /// Get a [LoroList] by container id.
+    ///
+    /// If the provided id is string, it will be converted into a root container id with the name of the string.
+    LoroList get_list(ContainerIdLike id);
+
+    /// Get a [LoroMap] by container id.
+    ///
+    /// If the provided id is string, it will be converted into a root container id with the name of the string.
+    LoroMap get_map(ContainerIdLike id);
+
+    /// Get a [LoroText] by container id.
+    ///
+    /// If the provided id is string, it will be converted into a root container id with the name of the string.
+    LoroText get_text(ContainerIdLike id);
+
+    /// Get a [LoroTree] by container id.
+    ///
+    /// If the provided id is string, it will be converted into a root container id with the name of the string.  
+    LoroTree get_tree(ContainerIdLike id);
+
+    /// Get a [LoroCounter] by container id.
+    ///
+    /// If the provided id is string, it will be converted into a root container id with the name of the string.
+    LoroCounter get_counter(ContainerIdLike id);
+
+    /// Commit the cumulative auto commit transaction.
+    ///
+    /// There is a transaction behind every operation.
+    /// It will automatically commit when users invoke export or import.
+    /// The event will be sent after a transaction is committed
+    void commit();
+
+    // void commit_with(CommitOptions options);
+
+    /// Whether the document is in detached mode, where the [loro_internal::DocState] is not
+    /// synchronized with the latest version of the [loro_internal::OpLog].
+    boolean is_detached();
+    
+    /// Import updates/snapshot exported by [`LoroDoc::export_snapshot`] or [`LoroDoc::export_from`].
+    [Throws=LoroError]
+    void import([ByRef]bytes bytes);
+    
+    /// Import updates/snapshot exported by [`LoroDoc::export_snapshot`] or [`LoroDoc::export_from`].
+    ///
+    /// It marks the import with a custom `origin` string. It can be used to track the import source
+    /// in the generated events.
+    [Throws=LoroError]
+    void import_with([ByRef] bytes bytes, [ByRef] string origin);
+    
+    // [Throws=LoroError]
+    // void import_json_updates(JsonSchema json);
+    // JsonSchema export_json_updates([ByRef]VersionVector start_vv, [ByRef]VersionVector end_vv);
+    
+    /// Export all the ops not included in the given `VersionVector`
+    bytes export_from([ByRef] VersionVector vv);
+
+    /// Export the current state and history of the document.
+    bytes export_snapshot();
+
+    /// Convert `Frontiers` into `VersionVector`
+    VersionVector? frontiers_to_vv([ByRef] Frontiers frontiers);
+
+    /// Convert `VersionVector` into `Frontiers`
+    Frontiers vv_to_frontiers([ByRef] VersionVector vv);
+    // with_oplog
+
+    /// Get the `VersionVector` version of `OpLog`
+    VersionVector oplog_vv();
+
+    /// Get the `VersionVector` version of `OpLog`
+    VersionVector state_vv();
+
+    /// Get the total number of operations in the `OpLog`
+    u64 len_ops();
+
+    /// Get the total number of changes in the `OpLog`
+    u64 len_changes();
+
+    /// Get the current state of the document.
+    LoroValue get_deep_value();
+
+    /// Get the `Frontiers` version of `OpLog`
+    Frontiers oplog_frontiers();
+
+    /// Get the `Frontiers` version of `DocState`
+    ///
+    /// [Learn more about `Frontiers`]()
+    Frontiers state_frontiers();
+
+    /// Get the PeerID
+    u64 peer_id();
+
+    /// Change the PeerID
+    ///
+    /// NOTE: You need ot make sure there is no chance two peer have the same PeerID.
+    /// If it happens, the document will be corrupted.
+    [Throws=LoroError]
+    void set_peer_id(u64 peer);
+
+    /// Subscribe the events of a container.
+    ///
+    /// The callback will be invoked when the container is changed.
+    /// Returns a subscription id that can be used to unsubscribe.
+    SubID subscribe([ByRef] ContainerID container_id, Subscriber subscriber);
+    
+    /// Subscribe all the events.
+    ///
+    /// The callback will be invoked when any part of the [loro_internal::DocState] is changed.
+    /// Returns a subscription id that can be used to unsubscribe.
+    SubID subscribe_root(Subscriber subscriber);
+
+    /// Remove a subscription.
+    void unsubscribe(SubID sub_id);
+
+    // /// Estimate the size of the document states in memory.
+    // void log_estimate_size();
+
+
+    // void check_state_correctness_slow();
+
+    /// Get the handler by the path.
+    ValueOrContainer? get_by_path([ByRef] sequence<Index> path);
+    
+    /// Get the handler by the string path.
+    ValueOrContainer? get_by_str_path([ByRef] string path);
+    // [Throws=LoroError]
+    // PosQueryResult get_cursor_pos(Cursor cursor);
+};
+
+// ============= CONTAINERS =============
+
+interface LoroText{
+    /// Create a new container that is detached from the document.
+    ///
+    /// The edits on a detached container will not be persisted.
+    /// To attach the container to the document, please insert it into an attached container.
+    constructor();
+    
+    /// Whether the container is attached to a document
+    ///
+    /// The edits on a detached container will not be persisted.
+    /// To attach the container to the document, please insert it into an attached container.
+    boolean is_attached();
+    
+    /// Get the [ContainerID]  of the text container.
+    ContainerID id();
+    
+    /// Insert a string at the given unicode position.
+    [Throws=LoroError]
+    void insert(u32 pos, [ByRef] string s);
+    
+    /// Insert a string at the given utf-8 position.
+    [Throws=LoroError]
+    void insert_utf8(u32 pos, [ByRef] string s);
+    
+    /// Delete a range of text at the given unicode position with unicode length.
+    [Throws=LoroError]
+    void delete(u32 pos, u32 len);
+    
+    /// Delete a range of text at the given utf-8 position with utf-8 length.
+    [Throws=LoroError]
+    void delete_utf8(u32 pos, u32 len);
+    
+    /// Get a string slice at the given Unicode range
+    [Throws=LoroError]
+    string slice(u32 start_index, u32 end_index);
+    
+    /// Delete specified character and insert string at the same position at given unicode position.
+    [Throws=LoroError]
+    string splice(u32 pos, u32 len, [ByRef] string s);
+    
+    /// Whether the text container is empty.
+    boolean is_empty();
+    
+    /// Get the length of the text container in UTF-8.
+    u32 len_utf8();
+
+    /// Get the length of the text container in Unicode.
+    u32 len_unicode();
+    
+    /// Get the length of the text container in UTF-16.
+    u32 len_utf16();
+    
+    /// Update the current text based on the provided text.
+    void update([ByRef] string s);
+    
+    /// Mark a range of text with a key-value pair.
+    ///
+    /// You can use it to create a highlight, make a range of text bold, or add a link to a range of text.
+    ///
+    /// You can specify the `expand` option to set the behavior when inserting text at the boundary of the range.
+    ///
+    /// - `after`(default): when inserting text right after the given range, the mark will be expanded to include the inserted text
+    /// - `before`: when inserting text right before the given range, the mark will be expanded to include the inserted text
+    /// - `none`: the mark will not be expanded to include the inserted text at the boundaries
+    /// - `both`: when inserting text either right before or right after the given range, the mark will be expanded to include the inserted text
+    ///
+    /// *You should make sure that a key is always associated with the same expand type.*
+    ///
+    /// Note: this is not suitable for unmergeable annotations like comments.
+    [Throws=LoroError]
+    void mark(u32 from, u32 to, [ByRef] string key, LoroValueLike value);
+    
+    /// Unmark a range of text with a key and a value.
+    ///
+    /// You can use it to remove highlights, bolds or links
+    ///
+    /// You can specify the `expand` option to set the behavior when inserting text at the boundary of the range.
+    ///
+    /// **Note: You should specify the same expand type as when you mark the text.**
+    ///
+    /// - `after`(default): when inserting text right after the given range, the mark will be expanded to include the inserted text
+    /// - `before`: when inserting text right before the given range, the mark will be expanded to include the inserted text
+    /// - `none`: the mark will not be expanded to include the inserted text at the boundaries
+    /// - `both`: when inserting text either right before or right after the given range, the mark will be expanded to include the inserted text
+    ///
+    /// *You should make sure that a key is always associated with the same expand type.*
+    ///
+    /// Note: you cannot delete unmergeable annotations like comments by this method.
+    [Throws=LoroError]
+    void unmark(u32 from, u32 to, [ByRef] string key);
+    
+    /// Get the text in [Delta](https://quilljs.com/docs/delta/) format.
+    LoroValue to_delta();
+    
+    /// Get the text content of the text container.
+    string to_string();
+    
+    /// Get the cursor at the given position.
+    ///
+    /// Using "index" to denote cursor positions can be unstable, as positions may
+    /// shift with document edits. To reliably represent a position or range within
+    /// a document, it is more effective to leverage the unique ID of each item/character
+    /// in a List CRDT or Text CRDT.
+    ///
+    /// Loro optimizes State metadata by not storing the IDs of deleted elements. This
+    /// approach complicates tracking cursors since they rely on these IDs. The solution
+    /// recalculates position by replaying relevant history to update stable positions
+    /// accurately. To minimize the performance impact of history replay, the system
+    /// updates cursor info to reference only the IDs of currently present elements,
+    /// thereby reducing the need for replay.
+    Cursor? get_cursor(u32 pos, Side side);
+};
+
+interface LoroList{
+    /// Create a new container that is detached from the document.
+    ///
+    /// The edits on a detached container will not be persisted.
+    /// To attach the container to the document, please insert it into an attached container.
+    constructor();
+    
+    /// Whether the container is attached to a document
+    ///
+    /// The edits on a detached container will not be persisted.
+    /// To attach the container to the document, please insert it into an attached container.
+    boolean is_attached();
+    
+    /// Insert a value at the given position.
+    [Throws=LoroError]
+    void insert(u32 pos, LoroValueLike v);
+    
+    /// Delete values at the given position.
+    [Throws=LoroError]
+    void delete(u32 pos, u32 len);
+    
+    /// Get the value at the given position.
+    ValueOrContainer? get(u32 index);
+    
+    /// Get the deep value of the container.
+    LoroValue get_deep_value();
+    
+    /// Get the shallow value of the container.
+    ///
+    /// This does not convert the state of sub-containers; instead, it represents them as [LoroValue::Container].
+    LoroValue get_value();
+    
+    /// Get the ID of the container.
+    ContainerID id();
+    
+    u32 len();
+    
+    boolean is_empty();
+    
+    /// Pop the last element of the list.
+    [Throws=LoroError]
+    LoroValue? pop();
+    
+    [Throws=LoroError]
+    void push(LoroValueLike v);
+    
+    // TODO: for_each
+    [Throws=LoroError]
+    LoroList insert_list_container(u32 pos, LoroList child);
+    
+    [Throws=LoroError]
+    LoroMap insert_map_container(u32 pos, LoroMap child);
+    
+    [Throws=LoroError]
+    LoroTree insert_tree_container(u32 pos, LoroTree child);
+    
+    [Throws=LoroError]
+    LoroMovableList insert_movable_list_container(u32 pos, LoroMovableList child);
+    
+    [Throws=LoroError]
+    LoroText insert_text_container(u32 pos, LoroText child);
+    
+    [Throws=LoroError]
+    LoroCounter insert_counter_container(u32 pos, LoroCounter child);
+    
+    Cursor? get_cursor(u32 pos, Side side);
+};
+
+interface LoroMap{
+    /// Create a new container that is detached from the document.
+    ///
+    /// The edits on a detached container will not be persisted.
+    /// To attach the container to the document, please insert it into an attached container.
+    constructor();
+    
+    /// Whether the container is attached to a document.
+    boolean is_attached();
+    
+    /// Delete a key-value pair from the map.
+    [Throws=LoroError]
+    void delete([ByRef] string key);
+    
+    /// Insert a key-value pair into the map.
+    [Throws=LoroError]
+    void insert([ByRef] string key, LoroValueLike v);
+    
+    /// Get the length of the map.
+    u32 len();
+     
+    /// Get the ID of the map.
+    ContainerID id();
+    
+    /// Whether the map is empty.
+    boolean is_empty();
+    
+    /// Get the value of the map with the given key.
+    ValueOrContainer? get([ByRef] string key);
+    
+    [Throws=LoroError]
+    LoroList insert_list_container([ByRef] string key, LoroList child);
+    [Throws=LoroError]
+    LoroMap insert_map_container([ByRef] string key, LoroMap child);
+    [Throws=LoroError]
+    LoroTree insert_tree_container([ByRef] string key, LoroTree child);
+    [Throws=LoroError]
+    LoroMovableList insert_movable_list_container([ByRef] string key, LoroMovableList child);
+    [Throws=LoroError]
+    LoroText insert_text_container([ByRef] string key, LoroText child);
+    [Throws=LoroError]
+    LoroCounter insert_counter_container([ByRef] string key, LoroCounter child);
+    
+    /// Get the shallow value of the map.
+    ///
+    /// It will not convert the state of sub-containers, but represent them as [LoroValue::Container].
+    LoroValue get_value();
+    
+    /// Get the deep value of the map.
+    ///
+    /// It will convert the state of sub-containers into a nested JSON value.
+    LoroValue get_deep_value();
+};
+
+interface LoroTree{
+    /// Create a new container that is detached from the document.
+    ///
+    /// The edits on a detached container will not be persisted.
+    /// To attach the container to the document, please insert it into an attached container.
+    constructor();
+    
+    /// Whether the container is attached to a document
+    ///
+    /// The edits on a detached container will not be persisted.
+    /// To attach the container to the document, please insert it into an attached container.
+    boolean is_attached();
+    
+    /// Create a new tree node and return the [`TreeID`].
+    ///
+    /// If the `parent` is `None`, the created node is the root of a tree.
+    /// Otherwise, the created node is a child of the parent tree node.
+    [Throws=LoroError]
+    TreeID create(TreeID? parent);
+    
+    /// Create a new tree node at the given index and return the [`TreeID`].
+    ///
+    /// If the `parent` is `None`, the created node is the root of a tree.
+    /// If the `index` is greater than the number of children of the parent, error will be returned.
+    [Throws=LoroError]
+    TreeID create_at(TreeID? parent, u32 index);
+    
+    /// Move the `target` node to be a child of the `parent` node.
+    ///
+    /// If the `parent` is `None`, the `target` node will be a root.
+    [Throws=LoroError]
+    void mov(TreeID target, TreeID? parent);
+    
+    /// Move the `target` node to be a child of the `parent` node at the given index.
+    /// If the `parent` is `None`, the `target` node will be a root.
+    [Throws=LoroError]
+    void mov_to(TreeID target, TreeID? parent, u32 to);
+    
+    /// Move the `target` node to be a child after the `after` node with the same parent.
+    [Throws=LoroError]
+    void mov_after(TreeID target, TreeID after);
+    
+    /// Move the `target` node to be a child before the `before` node with the same parent.
+    [Throws=LoroError]
+    void mov_before(TreeID target, TreeID before);
+    
+    /// Delete a tree node.
+    ///
+    /// Note: If the deleted node has children, the children do not appear in the state
+    /// rather than actually being deleted.
+    [Throws=LoroError]
+    void delete(TreeID target);
+    
+    /// Get the associated metadata map handler of a tree node.
+    [Throws=LoroError]
+    LoroMap get_meta(TreeID target);
+    
+    /// Return the parent of target node.
+    ///
+    /// - If the target node does not exist, throws Error.
+    /// - If the target node is a root node, return nil.
+    [Throws=LoroError]
+    TreeID? parent(TreeID target);
+    
+    /// Return whether target node exists.
+    boolean contains(TreeID target);
+    
+    /// Return all nodes
+    sequence<TreeID> nodes();
+    
+    /// Return all children of the target node.
+    ///
+    /// If the parent node does not exist, return `None`.
+    sequence<TreeID>? children(TreeID? parent);
+    
+    /// Return the number of children of the target node.
+    u32? children_num(TreeID? parent);
+    
+    /// Return container id of the tree.
+    ContainerID id();
+    
+    /// Return the fractional index of the target node with hex format.
+    string? fractional_index(TreeID target);
+    
+    /// Return the flat array of the forest.
+    ///
+    /// Note: the metadata will be not resolved. So if you don't only care about hierarchy
+    /// but also the metadata, you should use `get_value_with_meta()`.
+    LoroValue get_value();
+    
+    /// Return the flat array of the forest, each node is with metadata.
+    LoroValue get_value_with_meta();
+};
+
+interface LoroMovableList{
+    /// Create a new container that is detached from the document.
+    ///
+    /// The edits on a detached container will not be persisted.
+    /// To attach the container to the document, please insert it into an attached container.
+    constructor();
+    
+    /// Whether the container is attached to a document
+    ///
+    /// The edits on a detached container will not be persisted.
+    /// To attach the container to the document, please insert it into an attached container.
+    boolean is_attached();
+
+    /// Get the container id.
+    ContainerID id();
+    
+    /// Insert a value at the given position.
+    [Throws=LoroError]
+    void insert(u32 pos, LoroValueLike v);
+    
+    /// Delete values at the given position.
+    [Throws=LoroError]
+    void delete(u32 pos, u32 len);
+    
+    /// Get the value at the given position.
+    ValueOrContainer? get(u32 index);
+    
+    u32 len();
+    
+    boolean is_empty();
+
+    /// Get the deep value of the container.
+    LoroValue get_deep_value();
+    
+    /// Get the shallow value of the container.
+    ///
+    /// This does not convert the state of sub-containers; instead, it represents them as [LoroValue::Container].
+    LoroValue get_value();
+    
+    /// Pop the last element of the list.
+    [Throws=LoroError]
+    ValueOrContainer? pop();
+    
+    [Throws=LoroError]
+    void push(LoroValueLike v);
+
+    [Throws=LoroError]
+    LoroList insert_list_container(u32 pos, LoroList child);
+    
+    [Throws=LoroError]
+    LoroMap insert_map_container(u32 pos, LoroMap child);
+    
+    [Throws=LoroError]
+    LoroTree insert_tree_container(u32 pos, LoroTree child);
+    
+    [Throws=LoroError]
+    LoroMovableList insert_movable_list_container(u32 pos, LoroMovableList child);
+    
+    [Throws=LoroError]
+    LoroText insert_text_container(u32 pos, LoroText child);
+    
+    [Throws=LoroError]
+    LoroCounter insert_counter_container(u32 pos, LoroCounter child);
+    
+    [Throws=LoroError]
+    LoroList set_list_container(u32 pos, LoroList child);
+    
+    [Throws=LoroError]
+    LoroMap set_map_container(u32 pos, LoroMap child);
+    
+    [Throws=LoroError]
+    LoroTree set_tree_container(u32 pos, LoroTree child);
+    
+    [Throws=LoroError]
+    LoroMovableList set_movable_list_container(u32 pos, LoroMovableList child);
+    
+    [Throws=LoroError]
+    LoroText set_text_container(u32 pos, LoroText child);
+    
+    [Throws=LoroError]
+    LoroCounter set_counter_container(u32 pos, LoroCounter child);
+    
+    /// Get the cursor at the given position.
+    ///
+    /// Using "index" to denote cursor positions can be unstable, as positions may
+    /// shift with document edits. To reliably represent a position or range within
+    /// a document, it is more effective to leverage the unique ID of each item/character
+    /// in a List CRDT or Text CRDT.
+    ///
+    /// Loro optimizes State metadata by not storing the IDs of deleted elements. This
+    /// approach complicates tracking cursors since they rely on these IDs. The solution
+    /// recalculates position by replaying relevant history to update stable positions
+    /// accurately. To minimize the performance impact of history replay, the system
+    /// updates cursor info to reference only the IDs of currently present elements,
+    /// thereby reducing the need for replay.
+    Cursor? get_cursor(u32 pos, Side side);
+    
+    /// Set the value at the given position.
+    [Throws=LoroError]
+    void set(u32 pos, LoroValueLike value);
+    
+    /// Move the value at the given position to the given position.
+    [Throws=LoroError]
+    void mov(u32 from, u32 to);
+};
+
+interface LoroCounter{
+    /// Create a new Counter.
+    constructor();
+    
+    /// Return container id of the Counter.
+    ContainerID id();
+    
+    /// Increment the counter by the given value.
+    [Throws=LoroError]
+    void increment(double value);
+    
+    /// Decrement the counter by the given value.
+    [Throws=LoroError]
+    void decrement(double value);
+    
+    /// Get the current value of the counter.
+    f64 get_value();
+};
+
+interface LoroUnknown{
+    /// Get the container id.
+    ContainerID id();
+};
+
+// ============= CURSOR =============
+
+
+enum Side{
+    "Left",
+    "Middle",
+    "Right",
+};
+
+interface Cursor{
+    constructor(ID? id, ContainerID container, Side side, u32 origin_pos);
+};
+
+
+// ============= VERSIONS =============
+interface VersionVector{
+    constructor();
+    // void set_last(ID id);
+    i32? get_last(u64 peer);
+    // void set_end(ID id);
+    // boolean try_update_last(ID id);
+    // sequence<IdSpan> get_missing_span([ByRef] VersionVector target);
+    // void merge([ByRef] VersionVector other);
+    boolean includes_vv([ByRef] VersionVector other);
+    boolean includes_id(ID id);
+    // i32Span? intersect_span(IdSpan target);
+    // extend_to_include_vv();
+};
+
+interface Frontiers{
+
+};
+
+// ============= UNDO MANAGER =============
+
+interface UndoManager{
+    /// Create a new UndoManager.
+    constructor([ByRef] LoroDoc doc);
+
+    /// Undo the last change made by the peer.
+    [Throws=LoroError]
+    boolean undo([ByRef] LoroDoc doc);
+
+    /// Redo the last change made by the peer.
+    [Throws=LoroError]
+    boolean redo([ByRef] LoroDoc doc);
+
+    /// Record a new checkpoint.
+    [Throws=LoroError]
+    void record_new_checkpoint([ByRef] LoroDoc doc);
+
+    /// Whether the undo manager can undo.
+    boolean can_undo();
+
+    /// Whether the undo manager can redo.
+    boolean can_redo();
+
+    /// If a local event's origin matches the given prefix, it will not be recorded in the
+    /// undo stack.
+    void add_exclude_origin_prefix([ByRef] string prefix);
+
+    /// Set the maximum number of undo steps. The default value is 100.
+    void set_max_undo_steps(u32 size);
+
+    /// Set the merge interval in ms. The default value is 0, which means no merge.
+    void set_merge_interval(i64 interval);
+
+    /// Set the listener for push events.
+    /// The listener will be called when a new undo/redo item is pushed into the stack.
+    void set_on_push(OnPush? on_push);
+
+    /// Set the listener for pop events.
+    /// The listener will be called when an undo/redo item is popped from the stack.
+    void set_on_pop(OnPop? on_pop);
+};
+
+enum UndoOrRedo{
+    "Undo", "Redo",
+};
+
+dictionary CounterSpan{
+    i32 start;
+    i32 end;
+};
+
+dictionary UndoItemMeta{
+    LoroValue value;
+    sequence<CursorWithPos> cursors;
+};
+
+dictionary CursorWithPos{
+    Cursor cursor;
+    AbsolutePosition pos;
+};
+
+dictionary AbsolutePosition{
+    u32 pos;
+    Side side;
+};
+
+// ============= EVENTS =============
+
+dictionary DiffEvent{
+    /// How the event is triggered.
+    EventTriggerKind triggered_by;
+    /// The origin of the event.
+    string origin;
+    /// The current receiver of the event.
+    ContainerID? current_target;
+    /// The diffs of the event.
+    sequence<ContainerDiff> events;
+};
+
+/// A diff of a container.
+dictionary ContainerDiff{
+    /// The target container id of the diff.
+    ContainerID target;
+    /// The path of the diff.
+    sequence<PathItem> path;
+    /// Whether the diff is from unknown container.
+    boolean is_unknown;
+    /// The diff
+    Diff diff;
+};
+
+[Enum]
+interface Diff{
+    List(sequence<ListDiffItem> diff);
+    Text(sequence<TextDelta> diff);
+    Map(MapDelta diff);
+    Tree(TreeDiff diff);
+    Counter(double diff);
+    Unknown();
+};
+
+[Enum]
+interface TextDelta{
+    Retain(u32 retain, record<string, LoroValue>? attributes);
+    Insert(string insert, record<string, LoroValue>? attributes);
+    Delete(u32 delete);
+};
+
+[Enum]
+interface ListDiffItem{
+    /// Insert a new element into the list.
+    Insert(sequence<ValueOrContainer> insert, boolean is_move);
+    /// Delete n elements from the list at the current index.
+    Delete(u32 delete);
+    /// Retain n elements in the list.
+    ///
+    /// This is used to keep the current index unchanged.
+    Retain(u32 retain);
+};
+
+dictionary MapDelta{
+    record<string, ValueOrContainer?> updated;
+};
+
+dictionary TreeDiff{
+    sequence<TreeDiffItem> diff;
+};
+
+
+dictionary TreeDiffItem{
+    TreeID target;
+    TreeExternalDiff action;
+};
+
+[Enum]
+interface TreeExternalDiff{
+    Create(TreeID? parent, u32 index, string fractional_index);
+    Move(TreeID? parent, u32 index, string fractional_index);
+    Delete();
+};
+
+dictionary PathItem{
+    ContainerID container;
+    Index index;
+};
+
+/// The kind of the event trigger.
+enum EventTriggerKind{
+    /// The event is triggered by a local transaction.
+    "Local",
+    /// The event is triggered by importing
+    "Import",
+    /// The event is triggered by checkout
+    "Checkout",
+};
+
+[Enum]
+interface Index{
+    Key(string key);
+    Seq(u32 index);
+    Node(TreeID target);
+};
+
+// ============= TYPES =============
+dictionary TreeID{
+    u64 peer;
+    i32 counter;
+};
+
+
+dictionary ID{
+    u64 peer;
+    i32 counter;
+};
+
+interface IdSpan{
+
+};
+
+[Custom]
+typedef u32 SubID;
+
+[Enum]
+interface ContainerType{
+    Text();
+    Map();
+    List();
+    MovableList();
+    Tree();
+    Counter();
+    Unknown(u8 kind);
+};
+
+[Enum]
+interface ContainerID{
+    Root(string name, ContainerType container_type);
+    Normal(u64 peer,i32 counter, ContainerType container_type);
+};
+
+[Enum]
+interface LoroValue{
+    Null();
+    Bool(boolean value);
+    Double(f64 value);
+    I64(i64 value);
+    Binary(sequence<u8> value);
+    String(string value);
+    List(sequence<LoroValue> value);
+    Map(record<string, LoroValue> value);
+    Container(ContainerID value);
+};
+
+[Error]
+enum LoroError {
+ "UnmatchedContext",
+    "DecodeVersionVectorError",
+    "DecodeError",
+    "DecodeDataCorruptionError",
+    "DecodeChecksumMismatchError",
+    "IncompatibleFutureEncodingError",
+    "JsError",
+    "LockError",
+    "DuplicatedTransactionError",
+    "NotFoundError",
+    "TransactionError",
+    "OutOfBound",
+    "UsedOpID",
+    "TreeError",
+    "ArgErr",
+    "AutoCommitNotStarted",
+    "StyleConfigMissing",
+    "Unknown",
+    "FrontiersNotFound",
+    "ImportWhenInTxn",
+    "MisuseDetachedContainer" ,
+    "NotImplemented",
+    "ReattachAttachedContainer",
+    "EditWhenDetached",
+    "UndoInvalidIdSpan",
+    "UndoWithDifferentPeerId",
+    "InvalidJsonSchema",
+    "UTF8InUnicodeCodePoint",
+    "UTF16InUnicodeCodePoint",
+    "EndIndexLessThanStartIndex",
+    "InvalidRootContainerName",
+};

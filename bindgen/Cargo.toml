@@ -1,0 +1,30 @@
+[package]
+name = "uniffi-bindgen-php"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "uniffi_bindgen_php"
+path = "src/lib.rs"
+
+[[bin]]
+name = "uniffi-bindgen-php"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+askama = { version = "0.12", default-features = false, features = ["config"] }
+clap = { version = "3.1", features = ["cargo", "std", "derive"] }
+extend = "1.1"
+heck = "0.4"
+uniffi_bindgen = { path = "../3rd-party/uniffi-rs/uniffi_bindgen" }
+uniffi_meta = { path = "../3rd-party/uniffi-rs/uniffi_meta" }
+uniffi_udl = { path = "../3rd-party/uniffi-rs/uniffi_udl" }
+cargo_metadata = "0.15"
+serde = "1"
+toml = "0.5"
+camino = "1.0.8"
+fs-err = "2.7.0"
+paste = "1.0"
+serde_json = "1.0.0"
+textwrap = "0.16"

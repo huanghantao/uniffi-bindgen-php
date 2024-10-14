@@ -1,0 +1,13 @@
+[package]
+name = "uniffi-bindgen-php-fixtures"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "uniffi_fixtures"
+path = "src/lib.rs"
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[dependencies]
+# PHP specific
+uniffi-fixture-loro = { path = "loro" }
