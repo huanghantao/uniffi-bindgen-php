@@ -4,7 +4,7 @@ set -euxo pipefail
 SCRIPT_DIR="${SCRIPT_DIR:-$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )}"
 ROOT_DIR="$SCRIPT_DIR"
 
-BINDINGS_DIR="$ROOT_DIR/binding_tests/generated"
+BINDINGS_DIR="$ROOT_DIR/out"
 BINARIES_DIR="$ROOT_DIR/target/debug"
 
 rm -rf $BINDINGS_DIR
