@@ -1,0 +1,16 @@
+[package]
+name = "text-fixture"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "text_fixture"
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+uniffi = { git = "https://github.com/mozilla/uniffi-rs.git", tag = "v0.31.1", features = ["scaffolding-ffi-buffer-fns"] }
+
+[build-dependencies]
+uniffi = { git = "https://github.com/mozilla/uniffi-rs.git", tag = "v0.31.1", features = ["build"] }

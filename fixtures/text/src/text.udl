@@ -1,0 +1,13 @@
+namespace text {
+    string greet(string name);
+};
+
+interface TextDocument {
+    constructor(string initial_content);
+
+    void append(string value);
+    string content();
+    u32 len();
+    boolean is_empty();
+    void clear();
+};
