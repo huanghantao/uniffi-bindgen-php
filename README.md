@@ -40,3 +40,37 @@ final class MyInterfaceAdapter extends MyInterface
 
 The `{value}` placeholder is replaced with the generated PHP argument
 expression.
+
+## PHP Object Extensions
+
+`[bindings.php.object_extensions.<ObjectName>]` can append PHP methods to a
+generated object class. This is useful for package-specific convenience APIs
+that should live on the generated object instead of in a separate static helper
+class.
+
+The key can be the UniFFI object name or the generated PHP class name. The
+`code` block is inserted verbatim inside the generated PHP class body, just
+before the closing brace.
+
+```toml
+[bindings.php.object_extensions.MyMap]
+code = '''
+    public function set(string $key, mixed $value): void
+    {
+        $this->insert($key, $value);
+    }
+
+    public function toJSON(): mixed
+    {
+        return MyValueAdapter::toPhp($this->getDeepValue());
+    }
+'''
+```
+
+Object extensions are best for adding new instance methods that compose
+generated methods. They should not duplicate an existing generated method name,
+because PHP does not support method overloading.
+
+Type adapters and object extensions can be used together: type adapters change
+generated method argument hints and lowering expressions, while object
+extensions add package-level instance methods to generated classes.
