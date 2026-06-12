@@ -1,0 +1,106 @@
+name: Build binaries
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+
+env:
+  BIN_NAME: uniffi-bindgen-php
+  PACKAGE_NAME: uniffi-bindgen-php
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --notes "Automated binary release for $GITHUB_REF_NAME."
+
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    needs: create-release
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          if [[ -z "$channel" ]]; then
+            echo "Failed to read Rust channel from rust-toolchain.toml" >&2
+            exit 1
+          fi
+
+          rustup toolchain install "$channel" --profile minimal
+          rustup default "$channel"
+
+      - name: Cache Cargo files
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build release binary
+        shell: bash
+        run: cargo build --locked --release --package "$PACKAGE_NAME" --bin "$BIN_NAME"
+
+      - name: Package binary
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          host_triple="$(rustc -vV | sed -n 's/^host: //p')"
+          echo "host_triple=$host_triple" >> "$GITHUB_OUTPUT"
+
+          bin_ext=""
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            bin_ext=".exe"
+          fi
+
+          mkdir -p dist
+          cp "target/release/${BIN_NAME}${bin_ext}" "dist/${BIN_NAME}-${host_triple}${bin_ext}"
+
+          if [[ "${{ runner.os }}" != "Windows" ]]; then
+            chmod +x "dist/${BIN_NAME}-${host_triple}${bin_ext}"
+          fi
+
+          ls -lah dist
+
+      - name: Upload binary to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
