@@ -179,8 +179,8 @@ pub(crate) fn php_type_hint(type_: &Type) -> Result<String> {
         | Type::Int16
         | Type::UInt32
         | Type::Int32
-        | Type::UInt64
         | Type::Int64 => "int".to_string(),
+        Type::UInt64 => "int|string".to_string(),
         Type::Float32 | Type::Float64 => "float".to_string(),
         Type::Boolean => "bool".to_string(),
         Type::String | Type::Bytes => "string".to_string(),
@@ -192,6 +192,8 @@ pub(crate) fn php_type_hint(type_: &Type) -> Result<String> {
             let inner = php_type_hint(inner_type)?;
             if inner == "mixed" {
                 "mixed".to_string()
+            } else if inner.contains('|') {
+                format!("{inner}|null")
             } else {
                 format!("?{inner}")
             }

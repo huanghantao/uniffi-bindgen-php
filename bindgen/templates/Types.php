@@ -211,17 +211,31 @@ UNIFFI_CDEF;
         return $value;
     }
 
-    public static function lowerUInt64(int $value): int
+    public static function lowerUInt64(int|string $value): int|\FFI\CData
     {
-        if ($value < 0) {
-            throw new \RangeException('u64 requires a non-negative integer');
+        [$hi, $lo] = self::uint64Parts($value);
+        if ($hi <= 0x7fffffff) {
+            return $hi * 0x100000000 + $lo;
         }
-        return $value;
+
+        $u64 = self::ffi()->new('uint64_t');
+        \FFI::memcpy(\FFI::addr($u64), self::uint64NativeBytes($hi, $lo), 8);
+
+        return $u64;
     }
 
-    public static function liftUInt64(int $value): int
+    public static function liftUInt64(int $value): int|string
     {
-        return $value;
+        if ($value >= 0) {
+            return $value;
+        }
+
+        $bytes = pack('q', $value);
+        $parts = self::isLittleEndian()
+            ? unpack('Vlo/Vhi', $bytes)
+            : unpack('Nhi/Nlo', $bytes);
+
+        return self::uint64DecimalString($parts['hi'], $parts['lo']);
     }
 
     public static function lowerFloat32(float $value): float
@@ -504,23 +518,20 @@ UNIFFI_CDEF;
         self::writeUInt32($writer, $lo);
     }
 
-    public static function readUInt64(array &$reader): int
+    public static function readUInt64(array &$reader): int|string
     {
         $parts = unpack('Nhi/Nlo', self::readRawBytes($reader, 8));
-        $value = $parts['hi'] * 0x100000000 + $parts['lo'];
-        if (!is_int($value) || $value > PHP_INT_MAX) {
-            throw new \OverflowException('u64 value exceeds PHP integer range');
+
+        if ($parts['hi'] <= 0x7fffffff) {
+            return $parts['hi'] * 0x100000000 + $parts['lo'];
         }
-        return $value;
+
+        return self::uint64DecimalString($parts['hi'], $parts['lo']);
     }
 
-    public static function writeUInt64(array &$writer, int $value): void
+    public static function writeUInt64(array &$writer, int|string $value): void
     {
-        if ($value < 0) {
-            throw new \RangeException('u64 requires a non-negative integer');
-        }
-        $hi = intdiv($value, 0x100000000);
-        $lo = $value % 0x100000000;
+        [$hi, $lo] = self::uint64Parts($value);
         self::writeUInt32($writer, $hi);
         self::writeUInt32($writer, $lo);
     }
@@ -777,6 +788,78 @@ UNIFFI_CDEF;
         $target->capacity = $source->capacity;
         $target->len = $source->len;
         $target->data = $source->data;
+    }
+
+    private static function uint64Parts(int|string $value): array
+    {
+        if (is_int($value)) {
+            if ($value < 0) {
+                throw new \RangeException('u64 requires a non-negative integer');
+            }
+
+            return [intdiv($value, 0x100000000), $value % 0x100000000];
+        }
+
+        if (!preg_match('/^(0|[1-9][0-9]*)$/', $value)) {
+            throw new \RangeException('u64 string must be an unsigned decimal integer');
+        }
+
+        $hi = 0;
+        $lo = 0;
+        foreach (str_split($value) as $digit) {
+            $lo = $lo * 10 + (int) $digit;
+            $carry = intdiv($lo, 0x100000000);
+            $lo %= 0x100000000;
+            $hi = $hi * 10 + $carry;
+            if ($hi > 0xffffffff) {
+                throw new \RangeException('u64 string exceeds 18446744073709551615');
+            }
+        }
+
+        return [$hi, $lo];
+    }
+
+    private static function uint64DecimalString(int $hi, int $lo): string
+    {
+        $base = 1000000000;
+        $parts = [$lo % $base, intdiv($lo, $base)];
+        $carry = 0;
+        foreach ([294967296, 4] as $index => $part) {
+            $sum = ($parts[$index] ?? 0) + $part * $hi + $carry;
+            $parts[$index] = $sum % $base;
+            $carry = intdiv($sum, $base);
+        }
+        $index = 2;
+        while ($carry > 0) {
+            $sum = ($parts[$index] ?? 0) + $carry;
+            $parts[$index] = $sum % $base;
+            $carry = intdiv($sum, $base);
+            $index++;
+        }
+
+        while (count($parts) > 1 && end($parts) === 0) {
+            array_pop($parts);
+        }
+
+        $parts = array_reverse($parts);
+        $result = (string) array_shift($parts);
+        foreach ($parts as $part) {
+            $result .= str_pad((string) $part, 9, '0', STR_PAD_LEFT);
+        }
+
+        return $result;
+    }
+
+    private static function uint64NativeBytes(int $hi, int $lo): string
+    {
+        return self::isLittleEndian()
+            ? pack('V2', $lo, $hi)
+            : pack('N2', $hi, $lo);
+    }
+
+    private static function isLittleEndian(): bool
+    {
+        return pack('L', 1) === "\x01\x00\x00\x00";
     }
 
     private static function intInRange(int $value, int $min, int $max, string $type): int
