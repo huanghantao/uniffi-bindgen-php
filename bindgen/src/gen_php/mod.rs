@@ -19,7 +19,8 @@ mod object;
 
 use object::{
     build_function, build_object, class_name, function_name, lift_expr, lower_expr, php_type_hint,
-    type_spec, validate_type, variable_name, PhpCallable, PhpObject, PhpTypeAdapters,
+    type_spec, validate_type, variable_name, PhpCallable, PhpObject, PhpObjectExtensions,
+    PhpTypeAdapters,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -44,6 +45,7 @@ pub struct Config {
     pub exclude: Vec<String>,
     pub rename: toml::Table,
     pub type_adapters: PhpTypeAdapters,
+    pub object_extensions: PhpObjectExtensions,
 }
 
 impl Default for Config {
@@ -57,6 +59,7 @@ impl Default for Config {
             exclude: Vec::new(),
             rename: toml::Table::new(),
             type_adapters: PhpTypeAdapters::new(),
+            object_extensions: PhpObjectExtensions::new(),
         }
     }
 }
@@ -191,7 +194,7 @@ pub fn render_php_bindings(config: &Config, ci: &ComponentInterface) -> Result<S
     let objects = ci
         .object_definitions()
         .iter()
-        .map(|obj| build_object(obj, &config.type_adapters))
+        .map(|obj| build_object(obj, &config.type_adapters, &config.object_extensions))
         .collect::<Result<Vec<_>>>()?;
 
     PhpWrapper {

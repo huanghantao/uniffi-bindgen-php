@@ -7,6 +7,13 @@ use uniffi_bindgen::interface::{Argument, AsType, Callable, Object, ObjectImpl, 
 use super::PhpTypeAdapter;
 
 pub(crate) type PhpTypeAdapters = HashMap<String, PhpTypeAdapter>;
+pub(crate) type PhpObjectExtensions = HashMap<String, PhpObjectExtension>;
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct PhpObjectExtension {
+    #[serde(default)]
+    pub code: String,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct PhpArg {
@@ -36,6 +43,7 @@ pub(crate) struct PhpObject {
     pub(crate) primary_constructor: Option<PhpCallable>,
     pub(crate) alternate_constructors: Vec<PhpCallable>,
     pub(crate) methods: Vec<PhpCallable>,
+    pub(crate) extension_code: String,
 }
 
 pub(crate) fn build_function(
@@ -62,7 +70,11 @@ pub(crate) fn build_constructor(
     build_callable(name, callable, CallableKind::Constructor, type_adapters)
 }
 
-pub(crate) fn build_object(obj: &Object, type_adapters: &PhpTypeAdapters) -> Result<PhpObject> {
+pub(crate) fn build_object(
+    obj: &Object,
+    type_adapters: &PhpTypeAdapters,
+    object_extensions: &PhpObjectExtensions,
+) -> Result<PhpObject> {
     let primary_constructor = obj
         .primary_constructor()
         .map(|c| build_constructor(c.name(), c, type_adapters))
@@ -80,15 +92,22 @@ pub(crate) fn build_object(obj: &Object, type_adapters: &PhpTypeAdapters) -> Res
         .map(|m| build_method(m.name(), m, type_adapters))
         .collect::<Result<Vec<_>>>()?;
 
+    let class_name = class_name(obj.name());
+
     Ok(PhpObject {
-        class_name: class_name(obj.name()),
-        proxy_class_name: format!("UniFFI{}Proxy", class_name(obj.name())),
+        class_name: class_name.clone(),
+        proxy_class_name: format!("UniFFI{}Proxy", class_name),
         free_ffi_name: obj.ffi_object_free().name().to_string(),
         clone_ffi_name: obj.ffi_object_clone().name().to_string(),
         is_callback_trait: obj.has_callback_interface(),
         primary_constructor,
         alternate_constructors,
         methods,
+        extension_code: object_extensions
+            .get(obj.name())
+            .or_else(|| object_extensions.get(&class_name))
+            .map(|extension| extension.code.trim().to_string())
+            .unwrap_or_default(),
     })
 }
 

@@ -27,6 +27,10 @@ abstract class {{ obj.class_name }}
     {%- for meth in obj.methods %}
     abstract public function {{ meth.name }}({{ meth.args_decl }}){{ meth.return_type_decl }};
     {%- endfor %}
+    {%- if obj.extension_code != "" %}
+
+{{ obj.extension_code|safe }}
+    {%- endif %}
 }
 
 final class {{ obj.proxy_class_name }} extends {{ obj.class_name }}
@@ -83,6 +87,10 @@ final class {{ obj.proxy_class_name }} extends {{ obj.class_name }}
         {%- endif %}
     }
     {%- endfor %}
+    {%- if obj.extension_code != "" %}
+
+{{ obj.extension_code|safe }}
+    {%- endif %}
 }
 {%- else %}
 final class {{ obj.class_name }}
@@ -183,5 +191,9 @@ final class {{ obj.class_name }}
         {%- endif %}
     }
     {%- endfor %}
+    {%- if obj.extension_code != "" %}
+
+{{ obj.extension_code|safe }}
+    {%- endif %}
 }
 {%- endif %}
