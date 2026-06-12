@@ -19,3 +19,24 @@ remote UniFFI repository as a Cargo git dependency, not a local checkout.
 
 The generated PHP file is written to `target/php-bindings`.
 
+## PHP Type Adapters
+
+`[bindings.php.type_adapters.<TypeName>]` can widen PHP argument types and
+provide a custom lowering expression for a UniFFI type. This is useful when a
+package wants ergonomic domain-specific inputs while keeping the generator
+generic.
+
+```toml
+[bindings.php.type_adapters.MyInterface]
+type_hint = "string|MyInterface"
+lower = "MyInterface::uniffiLower(MyInterfaceAdapter::from({value}))"
+code = '''
+final class MyInterfaceAdapter extends MyInterface
+{
+    // Adapter implementation appended to the generated PHP file.
+}
+'''
+```
+
+The `{value}` placeholder is replaced with the generated PHP argument
+expression.

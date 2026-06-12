@@ -19,7 +19,7 @@ mod object;
 
 use object::{
     build_function, build_object, class_name, function_name, lift_expr, lower_expr, php_type_hint,
-    type_spec, validate_type, variable_name, PhpCallable, PhpObject,
+    type_spec, validate_type, variable_name, PhpCallable, PhpObject, PhpTypeAdapters,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -43,6 +43,7 @@ pub struct Config {
     pub omit_checksums: bool,
     pub exclude: Vec<String>,
     pub rename: toml::Table,
+    pub type_adapters: PhpTypeAdapters,
 }
 
 impl Default for Config {
@@ -55,8 +56,17 @@ impl Default for Config {
             omit_checksums: false,
             exclude: Vec::new(),
             rename: toml::Table::new(),
+            type_adapters: PhpTypeAdapters::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhpTypeAdapter {
+    pub type_hint: String,
+    pub lower: String,
+    #[serde(default)]
+    pub code: String,
 }
 
 impl Config {
@@ -176,12 +186,12 @@ pub fn render_php_bindings(config: &Config, ci: &ComponentInterface) -> Result<S
     let functions = ci
         .function_definitions()
         .iter()
-        .map(|f| build_function(f.name(), f))
+        .map(|f| build_function(f.name(), f, &config.type_adapters))
         .collect::<Result<Vec<_>>>()?;
     let objects = ci
         .object_definitions()
         .iter()
-        .map(build_object)
+        .map(|obj| build_object(obj, &config.type_adapters))
         .collect::<Result<Vec<_>>>()?;
 
     PhpWrapper {
@@ -201,9 +211,22 @@ pub fn render_php_bindings(config: &Config, ci: &ComponentInterface) -> Result<S
         callback_initializers: render_callback_initializers(ci),
         functions,
         objects,
+        custom_code: render_type_adapter_code(config),
     }
     .render()
     .context("failed to render PHP bindings")
+}
+
+fn render_type_adapter_code(config: &Config) -> String {
+    config
+        .type_adapters
+        .values()
+        .filter_map(|adapter| {
+            let code = adapter.code.trim();
+            (!code.is_empty()).then(|| code.to_string())
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn validate_component(ci: &ComponentInterface) -> Result<()> {
@@ -505,11 +528,12 @@ fn render_enum_definition(ci: &ComponentInterface, enum_: &UniFfiEnum) -> Result
 
 fn render_callback_interface_definition(callback: &CallbackInterface) -> Result<String> {
     let class = class_name(callback.name());
+    let type_adapters = PhpTypeAdapters::new();
     let methods = callback
         .methods()
         .into_iter()
         .map(|method| {
-            let callable = build_function(method.name(), method)?;
+            let callable = build_function(method.name(), method, &type_adapters)?;
             Ok(PhpCallbackMethod {
                 name: callable.name,
                 args_decl: callable.args_decl,
@@ -779,4 +803,5 @@ struct PhpWrapper {
     callback_initializers: Vec<String>,
     functions: Vec<PhpCallable>,
     objects: Vec<PhpObject>,
+    custom_code: String,
 }

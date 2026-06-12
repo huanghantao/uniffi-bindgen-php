@@ -17,3 +17,5 @@ namespace {{ namespace }};
 {% for obj in objects %}
 {% include "ObjectTemplate.php" %}
 {% endfor %}
+
+{{ custom_code }}

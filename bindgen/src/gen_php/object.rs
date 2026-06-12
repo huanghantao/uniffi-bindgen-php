@@ -1,6 +1,12 @@
+use std::collections::HashMap;
+
 use anyhow::{bail, Result};
 use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use uniffi_bindgen::interface::{Argument, AsType, Callable, Object, ObjectImpl, Type};
+
+use super::PhpTypeAdapter;
+
+pub(crate) type PhpTypeAdapters = HashMap<String, PhpTypeAdapter>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct PhpArg {
@@ -32,34 +38,46 @@ pub(crate) struct PhpObject {
     pub(crate) methods: Vec<PhpCallable>,
 }
 
-pub(crate) fn build_function(name: &str, callable: &impl Callable) -> Result<PhpCallable> {
-    build_callable(name, callable, CallableKind::Function)
+pub(crate) fn build_function(
+    name: &str,
+    callable: &impl Callable,
+    type_adapters: &PhpTypeAdapters,
+) -> Result<PhpCallable> {
+    build_callable(name, callable, CallableKind::Function, type_adapters)
 }
 
-pub(crate) fn build_method(name: &str, callable: &impl Callable) -> Result<PhpCallable> {
-    build_callable(name, callable, CallableKind::Method)
+pub(crate) fn build_method(
+    name: &str,
+    callable: &impl Callable,
+    type_adapters: &PhpTypeAdapters,
+) -> Result<PhpCallable> {
+    build_callable(name, callable, CallableKind::Method, type_adapters)
 }
 
-pub(crate) fn build_constructor(name: &str, callable: &impl Callable) -> Result<PhpCallable> {
-    build_callable(name, callable, CallableKind::Constructor)
+pub(crate) fn build_constructor(
+    name: &str,
+    callable: &impl Callable,
+    type_adapters: &PhpTypeAdapters,
+) -> Result<PhpCallable> {
+    build_callable(name, callable, CallableKind::Constructor, type_adapters)
 }
 
-pub(crate) fn build_object(obj: &Object) -> Result<PhpObject> {
+pub(crate) fn build_object(obj: &Object, type_adapters: &PhpTypeAdapters) -> Result<PhpObject> {
     let primary_constructor = obj
         .primary_constructor()
-        .map(|c| build_constructor(c.name(), c))
+        .map(|c| build_constructor(c.name(), c, type_adapters))
         .transpose()?;
 
     let alternate_constructors = obj
         .alternate_constructors()
         .into_iter()
-        .map(|c| build_constructor(c.name(), c))
+        .map(|c| build_constructor(c.name(), c, type_adapters))
         .collect::<Result<Vec<_>>>()?;
 
     let methods = obj
         .methods()
         .into_iter()
-        .map(|m| build_method(m.name(), m))
+        .map(|m| build_method(m.name(), m, type_adapters))
         .collect::<Result<Vec<_>>>()?;
 
     Ok(PhpObject {
@@ -81,7 +99,12 @@ enum CallableKind {
     Constructor,
 }
 
-fn build_callable(name: &str, callable: &impl Callable, kind: CallableKind) -> Result<PhpCallable> {
+fn build_callable(
+    name: &str,
+    callable: &impl Callable,
+    kind: CallableKind,
+    type_adapters: &PhpTypeAdapters,
+) -> Result<PhpCallable> {
     if callable.is_async() {
         bail!("PHP bindings do not support async callable `{name}` yet");
     }
@@ -89,7 +112,7 @@ fn build_callable(name: &str, callable: &impl Callable, kind: CallableKind) -> R
     let args = callable
         .arguments()
         .into_iter()
-        .map(build_arg)
+        .map(|arg| build_arg(&arg, type_adapters))
         .collect::<Result<Vec<_>>>()?;
     let args_decl = args
         .iter()
@@ -128,7 +151,7 @@ fn build_callable(name: &str, callable: &impl Callable, kind: CallableKind) -> R
     })
 }
 
-fn build_arg(arg: &Argument) -> Result<PhpArg> {
+fn build_arg(arg: &Argument, type_adapters: &PhpTypeAdapters) -> Result<PhpArg> {
     if arg.default_value().is_some() {
         bail!(
             "PHP bindings do not support default argument values yet: `{}`",
@@ -138,8 +161,8 @@ fn build_arg(arg: &Argument) -> Result<PhpArg> {
     let name = variable_name(arg.name());
     let ty = arg.as_type();
     Ok(PhpArg {
-        decl: format!("{} ${name}", php_type_hint(&ty)?),
-        lower_expr: lower_expr(&format!("${name}"), &ty)?,
+        decl: format!("{} ${name}", php_arg_type_hint(&ty, type_adapters)?),
+        lower_expr: lower_arg_expr(&format!("${name}"), &ty, type_adapters)?,
     })
 }
 
@@ -203,6 +226,13 @@ pub(crate) fn php_type_hint(type_: &Type) -> Result<String> {
     })
 }
 
+fn php_arg_type_hint(type_: &Type, type_adapters: &PhpTypeAdapters) -> Result<String> {
+    Ok(match type_adapter(type_, type_adapters) {
+        Some(adapter) => adapter.type_hint.clone(),
+        None => php_type_hint(type_)?,
+    })
+}
+
 pub(crate) fn lower_expr(value: &str, type_: &Type) -> Result<String> {
     Ok(match type_ {
         Type::UInt8 => format!("UniFFIRuntime::lowerUInt8({value})"),
@@ -238,6 +268,18 @@ pub(crate) fn lower_expr(value: &str, type_: &Type) -> Result<String> {
     })
 }
 
+fn lower_arg_expr(value: &str, type_: &Type, type_adapters: &PhpTypeAdapters) -> Result<String> {
+    if let Some(adapter) = type_adapter(type_, type_adapters) {
+        if !adapter.lower.contains("{value}") {
+            bail!("PHP type adapter lower expression must contain `{{value}}`");
+        }
+
+        return Ok(adapter.lower.replace("{value}", value));
+    }
+
+    lower_expr(value, type_)
+}
+
 pub(crate) fn lift_expr(value: &str, type_: &Type) -> Result<String> {
     Ok(match type_ {
         Type::UInt8 => format!("UniFFIRuntime::liftUInt8({value})"),
@@ -271,6 +313,23 @@ pub(crate) fn lift_expr(value: &str, type_: &Type) -> Result<String> {
             )
         }
     })
+}
+
+fn type_adapter<'a>(
+    type_: &Type,
+    type_adapters: &'a PhpTypeAdapters,
+) -> Option<&'a PhpTypeAdapter> {
+    let name = match type_ {
+        Type::Object { name, .. }
+        | Type::Record { name, .. }
+        | Type::Enum { name, .. }
+        | Type::CallbackInterface { name, .. } => name,
+        _ => return None,
+    };
+
+    type_adapters
+        .get(name)
+        .or_else(|| type_adapters.get(&class_name(name)))
 }
 
 pub(crate) fn class_name(name: &str) -> String {
